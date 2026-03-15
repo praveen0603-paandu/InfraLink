@@ -39,10 +39,6 @@ overflow:auto;
 border-right:1px solid #ddd;
 }
 
-.sidebar h3{
-margin-top:18px;
-}
-
 .sidebar input{
 width:100%;
 padding:8px;
@@ -129,6 +125,9 @@ InfraLink – Smart Highway Network Planner
 <h3>Total Cost</h3>
 <p id="cost">0</p>
 
+<h3>Best Connections</h3>
+<p id="connections">0</p>
+
 <h3>Added Cities</h3>
 
 <div class="cityList" id="cityList">
@@ -191,7 +190,11 @@ list.innerHTML=html
 
 function addCity(lat,lng,weight){
 
-cities.push({lat:lat,lng:lng,weight:weight})
+cities.push({
+lat:lat,
+lng:lng,
+weight:weight
+})
 
 refreshMarkers()
 
@@ -236,7 +239,14 @@ let lat=parseFloat(document.getElementById("lat").value)
 let lng=parseFloat(document.getElementById("lng").value)
 let weight=parseFloat(document.getElementById("weight").value)
 
+if(isNaN(lat) || isNaN(lng)){
+alert("Enter valid coordinates")
+return
+}
+
 addCity(lat,lng,weight)
+
+map.setView([lat,lng],8)
 
 }
 
@@ -265,6 +275,7 @@ interchange=null
 updateCityList()
 
 document.getElementById("cost").innerText="0"
+document.getElementById("connections").innerText="0"
 
 }
 
@@ -316,6 +327,7 @@ edges.sort((a,b)=>a.d-b.d)
 
 let roadCost=document.getElementById("roadCost").value
 let total=0
+let connectionCount=0
 
 for(let e of edges){
 
@@ -329,6 +341,7 @@ parent[pi]=pj
 await drawAnimatedRoad(e)
 
 total+=e.d*roadCost
+connectionCount++
 
 }
 
@@ -337,6 +350,7 @@ total+=e.d*roadCost
 detectInterchange()
 
 document.getElementById("cost").innerText=total.toFixed(2)
+document.getElementById("connections").innerText=connectionCount
 
 }
 
