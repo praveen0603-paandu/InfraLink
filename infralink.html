@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+<title>InfraLink – Smart Highway Network Planner</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+
+<style>
+
+body{
+margin:0;
+font-family:Segoe UI, Arial;
+background:#eef2f7;
+}
+
+header{
+background:#1f4e79;
+color:white;
+padding:14px;
+text-align:center;
+font-size:22px;
+font-weight:bold;
+}
+
+.container{
+display:flex;
+height:92vh;
+}
+
+.sidebar{
+width:330px;
+background:white;
+padding:18px;
+overflow:auto;
+border-right:1px solid #ddd;
+}
+
+.sidebar h3{
+margin-top:18px;
+}
+
+.sidebar input{
+width:100%;
+padding:8px;
+margin-top:6px;
+margin-bottom:10px;
+border:1px solid #ccc;
+border-radius:5px;
+}
+
+button{
+width:100%;
+padding:9px;
+margin-top:8px;
+border:none;
+border-radius:6px;
+background:#2b7cff;
+color:white;
+font-weight:bold;
+cursor:pointer;
+}
+
+button:hover{
+background:#1d5fd3;
+}
+
+#map{
+flex:1;
+}
+
+.cityList{
+background:#f8f9fb;
+padding:10px;
+border-radius:6px;
+max-height:160px;
+overflow:auto;
+font-size:14px;
+}
+
+.city-marker{
+background:#ff5722;
+color:white;
+border-radius:50%;
+width:28px;
+height:28px;
+display:flex;
+align-items:center;
+justify-content:center;
+font-size:13px;
+font-weight:bold;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<header>
+InfraLink – Smart Highway Network Planner
+</header>
+
+<div class="container">
+
+<div class="sidebar">
+
+<h3>Add City Manually</h3>
+
+<input type="number" id="lat" placeholder="Latitude">
+<input type="number" id="lng" placeholder="Longitude">
+<input type="number" id="weight" value="10" placeholder="Traffic Weight">
+
+<button onclick="addCityManual()">Add City</button>
+
+<button onclick="clearCities()">Delete All Cities</button>
+
+<h3>Road Cost</h3>
+
+<input type="number" id="roadCost" value="10">
+
+<button onclick="generateNetwork()">Generate Network</button>
+
+<button onclick="exportMap()">Export Screenshot</button>
+
+<h3>Total Cost</h3>
+<p id="cost">0</p>
+
+<h3>Added Cities</h3>
+
+<div class="cityList" id="cityList">
+No cities yet
+</div>
+
+<p>Tip: Click anywhere on map to add cities.</p>
+
+</div>
+
+<div id="map"></div>
+
+</div>
+
+<script>
+
+let map = L.map('map').setView([20,78],5)
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+maxZoom:19
+}).addTo(map)
+
+let cities=[]
+let markers=[]
+let lines=[]
+let interchange=null
+
+function createNumberIcon(number){
+
+return L.divIcon({
+className:'city-marker',
+html:number,
+iconSize:[28,28]
+})
+
+}
+
+function updateCityList(){
+
+let list=document.getElementById("cityList")
+
+if(cities.length==0){
+list.innerHTML="No cities yet"
+return
+}
+
+let html=""
+
+cities.forEach((c,i)=>{
+
+html += "City "+(i+1)+" → Lat: "+c.lat.toFixed(2)+
+", Lng: "+c.lng.toFixed(2)+
+", Weight: "+c.weight+"<br>"
+
+})
+
+list.innerHTML=html
+
+}
+
+function addCity(lat,lng,weight){
+
+cities.push({lat:lat,lng:lng,weight:weight})
+
+refreshMarkers()
+
+}
+
+function refreshMarkers(){
+
+markers.forEach(m=>map.removeLayer(m))
+markers=[]
+
+cities.forEach((c,i)=>{
+
+let marker=L.marker([c.lat,c.lng],{
+icon:createNumberIcon(i+1)
+}).addTo(map)
+
+marker.bindPopup(
+"City "+(i+1)+
+"<br>Weight: "+c.weight+
+"<br><b>Click marker to delete</b>"
+)
+
+marker.on("click",function(){
+
+cities.splice(i,1)
+
+refreshMarkers()
+
+})
+
+markers.push(marker)
+
+})
+
+updateCityList()
+
+}
+
+function addCityManual(){
+
+let lat=parseFloat(document.getElementById("lat").value)
+let lng=parseFloat(document.getElementById("lng").value)
+let weight=parseFloat(document.getElementById("weight").value)
+
+addCity(lat,lng,weight)
+
+}
+
+map.on("click",function(e){
+
+let weight=document.getElementById("weight").value
+
+addCity(e.latlng.lat,e.latlng.lng,weight)
+
+})
+
+function clearCities(){
+
+cities=[]
+markers.forEach(m=>map.removeLayer(m))
+markers=[]
+
+lines.forEach(l=>map.removeLayer(l))
+lines=[]
+
+if(interchange){
+map.removeLayer(interchange)
+interchange=null
+}
+
+updateCityList()
+
+document.getElementById("cost").innerText="0"
+
+}
+
+function distance(a,b){
+
+let dx=a.lat-b.lat
+let dy=a.lng-b.lng
+
+return Math.sqrt(dx*dx+dy*dy)
+
+}
+
+async function generateNetwork(){
+
+lines.forEach(l=>map.removeLayer(l))
+lines=[]
+
+let parent=[]
+
+for(let i=0;i<cities.length;i++)
+parent[i]=i
+
+function find(x){
+
+while(parent[x]!=x)
+x=parent[x]
+
+return x
+
+}
+
+let edges=[]
+
+for(let i=0;i<cities.length;i++){
+
+for(let j=i+1;j<cities.length;j++){
+
+edges.push({
+i:i,
+j:j,
+d:distance(cities[i],cities[j])
+})
+
+}
+
+}
+
+edges.sort((a,b)=>a.d-b.d)
+
+let roadCost=document.getElementById("roadCost").value
+let total=0
+
+for(let e of edges){
+
+let pi=find(e.i)
+let pj=find(e.j)
+
+if(pi!=pj){
+
+parent[pi]=pj
+
+await drawAnimatedRoad(e)
+
+total+=e.d*roadCost
+
+}
+
+}
+
+detectInterchange()
+
+document.getElementById("cost").innerText=total.toFixed(2)
+
+}
+
+function drawAnimatedRoad(edge){
+
+return new Promise(resolve=>{
+
+let line=L.polyline([
+[cities[edge.i].lat,cities[edge.i].lng],
+[cities[edge.j].lat,cities[edge.j].lng]
+],{
+color:"red",
+weight:4
+}).addTo(map)
+
+lines.push(line)
+
+setTimeout(resolve,400)
+
+})
+
+}
+
+function detectInterchange(){
+
+if(cities.length<3) return
+
+let x=0
+let y=0
+
+cities.forEach(c=>{
+x+=c.lat
+y+=c.lng
+})
+
+x/=cities.length
+y/=cities.length
+
+if(interchange)
+map.removeLayer(interchange)
+
+interchange=L.circleMarker([x,y],{
+radius:8,
+color:"green"
+}).addTo(map)
+
+interchange.bindPopup("Suggested Interchange")
+
+}
+
+function exportMap(){
+
+html2canvas(document.getElementById("map")).then(canvas=>{
+
+let link=document.createElement("a")
+
+link.download="InfraLink_Map.png"
+
+link.href=canvas.toDataURL()
+
+link.click()
+
+})
+
+}
+
+</script>
+
+</body>
+
+</html>
